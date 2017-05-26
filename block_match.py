@@ -1,6 +1,10 @@
 import numpy as np
+import skimage as ski
+
+import numpy.random
 import scipy.spatial.distance
 import skimage.util
+import matplotlib.pyplot as plt
 
 
 def block_match_self(y, ref_coordinates, n1=8, n2=32):
@@ -55,6 +59,37 @@ def block_match_self(y, ref_coordinates, n1=8, n2=32):
     return match_table
 
 
+def block_match_local(y, n1=8, n2=8, ns=8, nstep=7, max_memory=2**30):
+
+    # View image as patches.
+    y_pch = ski.util.view_as_windows(y, n1)
+
+    # Generate explicit grids to compute candidate block coordinates.
+    ref_crd = np.mgrid[:y.shape[0]-(ns+n1):nstep, :y.shape[1]-(ns+n1):nstep]
+    rel_cdt_crd = np.mgrid[:ns, :ns]
+    cdt_crd = ref_crd[:, :, :, None, None] + rel_cdt_crd[:, None, None, :, :]
+
+    # View candidate and reference blocks.
+    ref_pch = y_pch[ref_crd[0], ref_crd[1]]
+    cdt_pch = y_pch[cdt_crd[0], cdt_crd[1]]
+
+    # Compute non rooted Euclidean distance.
+    dif = cdt_pch - ref_pch[:, :, None, None, :, :]
+    dst = np.sum(dif ** 2, axis=(4, 5))
+
+    # Find n2 best distances.
+    dst_flat = dst.reshape((dst.shape[:2] + (-1,)))
+    idx = np.argpartition(dst_flat, n2)[:,:,:n2]
+
+    # Return as a tuple (row, col)
+    mt_rel_row, mt_rel_col = np.unravel_index(idx, rel_cdt_crd.shape[1:])
+
+    mt = (ref_crd[0, :, :, None] + mt_rel_row,
+          ref_crd[1, :, :, None] + mt_rel_col)
+
+    return mt, dst
+
+
 def read_group(y, match_table, n1=8):
     """
     Read a group of patches from image based on match table.
@@ -101,3 +136,57 @@ def compute_patch_shape(y, n1):
         patch_shape = (n1, n1)
 
     return patch_shape
+
+
+def visualise_match_table(match_table, y, n1=8, nstep=7, distance=None):
+
+    mts = match_table[0].shape
+
+    # 3rd dimension addresses the matches
+    ref_row_cnt = mts[0]
+    ref_col_cnt = mts[1]
+    n2 = mts[2]
+
+    # Pick a random block as reference.
+    ref_row = np.random.randint(ref_row_cnt)
+    ref_col = np.random.randint(ref_col_cnt)
+    ref_row_abs = ref_row * nstep
+    ref_col_abs = ref_col * nstep
+
+    match_entry = (match_table[0][ref_row, ref_col],
+                   match_table[1][ref_row, ref_col])
+    group = read_group(y, match_entry, n1)
+
+    # Show results.
+    if distance is not None:
+        distance_entry = distance[ref_row, ref_col]
+        axis_count = n2 + 1
+    else:
+        axis_count = n2
+
+    axis_count_root = np.ceil(np.sqrt(axis_count))
+    plt.figure(figsize=(axis_count_root, axis_count_root))
+    plt.set_cmap('gray')
+    for r in range(n2):
+        b = group[r]
+        row_rel = match_entry[0][r] - ref_row_abs
+        col_rel = match_entry[1][r] - ref_col_abs
+        plt.subplot(axis_count_root, axis_count_root, r + 1)
+        plt.imshow(b)
+
+        if distance is not None:
+            tt = plt.title('(%s,%s: %0.6f)' % (row_rel, col_rel,
+                                               distance_entry[row_rel,
+                                                              col_rel]))
+        else:
+            tt = plt.title('(%s,%s)' % (row_rel, col_rel))
+
+        if (row_rel, col_rel) == (0, 0):
+            tt.set_color('red')
+
+    if distance is not None:
+        plt.subplot(axis_count_root, axis_count_root, axis_count)
+        plt.imshow(distance_entry)
+        plt.title('Distance matrix')
+
+    plt.show()
