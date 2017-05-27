@@ -59,18 +59,23 @@ def block_match_self(y, ref_coordinates, n1=8, n2=32):
     return match_table
 
 
-def block_match_local(y, ref_coordinates, n1=8, n2=8, ns=8, max_memory=2**30):
+def block_match_local(y, ref_coordinates, n1=8, n2=8, ns=16, max_memory=2**30):
 
    patch_shape = compute_patch_shape(y, n1)
 
    # View image as patches.
    y_patch = ski.util.view_as_windows(y, patch_shape)
 
-   # Reference coordinate arrays are flattened.
-   ref_row = np.array(ref_coordinates[0], ndmin=1).reshape(-1)
-   ref_col = np.array(ref_coordinates[1], ndmin=1).reshape(-1)
+   ref_row = np.array(ref_coordinates[0], ndmin=1)[..., None]
+   ref_col = np.array(ref_coordinates[1], ndmin=1)[..., None]
 
-   candidate_coordinates = np.mgrid[0:ns,0:ns].reshape(2, 1, -1)
+   # Ugly thing to respect random shape of reference coordinates.
+   coordinates_shape = (2, )
+   for ax in range(ref_row.ndim - 1):
+      coordinates_shape = coordinates_shape + (1, )
+   coordinates_shape = coordinates_shape + (-1, )
+
+   candidate_coordinates = np.mgrid[0:ns,0:ns].reshape(coordinates_shape)
    candidate_row = ref_row + candidate_coordinates[0]
    candidate_col = ref_col + candidate_coordinates[1]
 
@@ -80,21 +85,28 @@ def block_match_local(y, ref_coordinates, n1=8, n2=8, ns=8, max_memory=2**30):
 
    # Compute non rooted Euclidean distance.
    difference = search_space - ref
-   distance = np.sum(difference ** 2, axis=(2, 3))
+   difference_squared = difference ** 2
+
+   # Another ugly thing... We need to add over the two last axes.
+   sum_axis = ()
+   for ai in range(candidate_row.ndim, search_space.ndim):
+      sum_axis = sum_axis + (ai, )
+
+   distance = np.sum(difference_squared, axis=sum_axis)
 
    # Find n2 best distances.
    match_idx = np.argpartition(distance, n2)[..., :n2]
 
    # Compute global coordinates.
    match_row, match_col = np.unravel_index(match_idx, (ns, ns))
-   match_row = ref_row + match_row
-   match_col = ref_col + match_col
+   match_row = ref_row[:-1] + match_row
+   match_col = ref_col[:-1] + match_col
 
    # Match table is a (row, col) tupple.
    match_table = (match_row, match_col)
 
    # Distance is 2D for simplicity of interpretation.
-   distance = distance.reshape((-1, ns, ns,))
+   distance = distance.reshape(match_row.shape[:-1] + (ns, ns,))
 
    return match_table, distance
 
