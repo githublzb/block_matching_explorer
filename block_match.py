@@ -67,8 +67,8 @@ def block_match_local(y, ref_coordinates, n1=8, n2=8, ns=8, max_memory=2**30):
    y_patch = ski.util.view_as_windows(y, patch_shape)
 
    # Reference coordinate arrays are flattened.
-   ref_row = np.array(ref_coordinates[0], ndmin=1).reshape(-1)
-   ref_col = np.array(ref_coordinates[1], ndmin=1).reshape(-1)
+   ref_row = np.array(ref_coordinates[0], ndmin=1).reshape(-1, 1)
+   ref_col = np.array(ref_coordinates[1], ndmin=1).reshape(-1, 1)
 
    candidate_coordinates = np.mgrid[0:ns,0:ns].reshape(2, 1, -1)
    candidate_row = ref_row + candidate_coordinates[0]
