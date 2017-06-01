@@ -59,44 +59,83 @@ def block_match_self(y, ref_coordinates, n1=8, n2=32):
     return match_table
 
 
-def block_match_local(y, ref_coordinates, n1=8, n2=8, ns=8, max_memory=2**30):
+def block_match_self_local(y, ref_coordinates, n1=8, n2=8, ns=8,
+                         max_memory=2**30):
+    """
+    Block match for self-similarity, local search.
+    
+    Compute a match table using as search space a local neighbourhood of the 
+    reference block. The reference block is specified as a tuple of    
+    coordinates (row,col).
+    
+    :param y: Input image. Can be grayscale or colour.
+    
+    :param ref_coordinates: Tuple of reference block coordinates in the form 
+    (row, col). row and col must be of the same size, either scalar or some 
+    sort of array. If row/col are an array, multiple reference blocks are 
+    processed simultaneously.
+    
+    :param n1: Edge of the patch (first 2 dimensions).
+    
+    :param n2: Group size. Number of similar patches returned in the match 
+    table, per reference block.
+    
+    :param ns: Size of the local neighbourhood.
+    
+    :param max_memory: Maximum memory used by this function. Not implemented 
+    yet.
 
-   patch_shape = compute_patch_shape(y, n1)
+    :return: Match table. A tuple (row, col). Both row and col are of 
+    dimensions (ref_coordinates[0].size, n2). Note that the reference 
+    coordinates are allways flattened and their shape is not reflected in the output.
+    """
+    patch_shape = compute_patch_shape(y, n1)
 
-   # View image as patches.
-   y_patch = ski.util.view_as_windows(y, patch_shape)
+    # View image as patches.
+    y_patch = ski.util.view_as_windows(y, patch_shape)
 
-   # Reference coordinate arrays are flattened.
-   ref_row = np.array(ref_coordinates[0], ndmin=1).reshape(-1, 1)
-   ref_col = np.array(ref_coordinates[1], ndmin=1).reshape(-1, 1)
+    # Reference coordinate arrays are flattened.
+    ref_row = np.array(ref_coordinates[0], ndmin=1).reshape(-1, 1)
+    ref_col = np.array(ref_coordinates[1], ndmin=1).reshape(-1, 1)
 
-   candidate_coordinates = np.mgrid[0:ns,0:ns].reshape(2, 1, -1)
-   candidate_row = ref_row + candidate_coordinates[0]
-   candidate_col = ref_col + candidate_coordinates[1]
+    # Odd ns gives even split between negative and positive offsets. Even ns
+    # will give one more candidate block on the positive offsets.
+    a = -(ns - 1) // 2 # -floor((ns - 1) / 2)
+    b = (ns - 1 + 1) // 2 # ceil((ns - 1) / 2)
+    candidate_coordinates = np.mgrid[a:b, a:b]
 
-   # View of reference blocks and corresponding search space.
-   ref = y_patch[(ref_row, ref_col)]
-   search_space = y_patch[(candidate_row, candidate_col)]
+    # Flatten coordinates and compute absolute.
+    candidate_coordinates = candidate_coordinates.reshape(2, 1, -1)
+    candidate_row = ref_row + candidate_coordinates[0]
+    candidate_col = ref_col + candidate_coordinates[1]
 
-   # Compute non rooted Euclidean distance.
-   difference = search_space - ref
-   distance = np.sum(difference ** 2, axis=(2, 3))
+    # But make sure we stay inside the image.
+    candidate_row = np.fmax(np.fmin(candidate_row, y_patch.shape[0]), 0)
+    candidate_col = np.fmax(np.fmin(candidate_col, y_patch.shape[1]), 0)
 
-   # Find n2 best distances.
-   match_idx = np.argpartition(distance, n2)[..., :n2]
+    # View of reference blocks and corresponding search space.
+    ref = y_patch[(ref_row, ref_col)]
+    search_space = y_patch[(candidate_row, candidate_col)]
 
-   # Compute global coordinates.
-   match_row, match_col = np.unravel_index(match_idx, (ns, ns))
-   match_row = ref_row + match_row
-   match_col = ref_col + match_col
+    # Compute non rooted Euclidean distance.
+    difference = search_space - ref
+    distance = np.sum(difference ** 2, axis=(2, 3))
 
-   # Match table is a (row, col) tupple.
-   match_table = (match_row, match_col)
+    # Find n2 best distances.
+    match_idx = np.argpartition(distance, n2)[..., :n2]
 
-   # Distance is 2D for simplicity of interpretation.
-   distance = distance.reshape((-1, ns, ns,))
+    # Generate results.
+    tmp = (np.arange(ref_row.size)[:, None], match_idx)
+    match_row = candidate_row[tmp]
+    match_col = candidate_col[tmp]
+    match_distance = distance[tmp]
 
-   return match_table, distance
+    full_distance = distance.reshape((-1, ns, ns))
+
+    # Match table is a (row, col) tupple.
+    match_table = (match_row, match_col)
+
+    return match_table, match_distance, full_distance
 
 
 def read_group(y, match_table, n1=8):
@@ -148,15 +187,28 @@ def compute_patch_shape(y, n1):
 
 
 def visualise_match_table(match_table, y, n1=8, ref_coordinates=None,
-                          distance=None):
+                          distance=None, distance_full=None):
+    """
+    Show the match results.
+    :param match_table: The return value of any block matching function.
+    
+    :param y: The image on which to observe the match table.
+     
+    :param n1: Patch side.
+     
+    :param ref_coordinates: The same reference coordinates array as provided 
+    to the block matching function, in order to identify the reference block.
+     
+    :param distance: The distance array returned by the block match function,
+    in order to visualize the distance between each block and the reference. 
+    """
 
-    # 3rd dimension addresses the matches
-    group_count_row, group_count_col, n2 = match_table[0].shape
+    # 2nd dimension addresses the matches
+    group_count, n2 = match_table[0].shape
 
     # Pick a random group. A group id is a (row, col) tuple of coordinates in
     #  the match table's two first dimensions.
-    group_id = (np.random.randint(group_count_row),
-                np.random.randint(group_count_col), )
+    group_id = np.random.randint(group_count)
 
     match_entry = (match_table[0][group_id], match_table[1][group_id], )
     group = read_group(y, match_entry, n1)
@@ -168,8 +220,8 @@ def visualise_match_table(match_table, y, n1=8, ref_coordinates=None,
         axis_count = n2
 
     if ref_coordinates is not None:
-        ref_row = ref_coordinates[0][group_id]
-        ref_col = ref_coordinates[1][group_id]
+        ref_row = np.array(ref_coordinates[0], ndmin=1)[group_id]
+        ref_col = np.array(ref_coordinates[1], ndmin=1)[group_id]
     else:
         ref_row = -1
         ref_col = -1
@@ -185,8 +237,10 @@ def visualise_match_table(match_table, y, n1=8, ref_coordinates=None,
         plt.subplot(axis_count_root, axis_count_root, r + 1)
         plt.imshow(b)
 
+        row_rel = row - ref_row
+        col_rel = col - ref_col
         if distance is not None:
-            d = distance_entry[np.unravel_index(r, match_entry[0].shape)]
+            d = distance_entry[r]
             tt = plt.title('(%s,%s: %0.6f)' % (row, col, d))
         else:
             tt = plt.title('(%s,%s)' % (match_entry[0][r], match_entry[1][r]))
@@ -194,9 +248,62 @@ def visualise_match_table(match_table, y, n1=8, ref_coordinates=None,
         if (row_rel, col_rel) == (0, 0):
             tt.set_color('red')
 
-    if distance is not None:
+    if distance_full is not None:
         plt.subplot(axis_count_root, axis_count_root, axis_count)
-        plt.imshow(distance_entry)
+        plt.imshow(distance_full[group_id])
         plt.title('Distance matrix')
 
     plt.show()
+
+def select_random_ref(y, n1, ns, size):
+    """
+    Compute the valid range of the reference coordinates.
+    :param y: Image to consider as input.
+    
+    :param n1: 
+    :param ns: 
+    :param size: Number of coordinates to generate.
+    :return: ref_row_lim, ref_col_lim
+    """
+
+    a = (ns - 1) // 2 # -floor((ns - 1) / 2)
+    b = (ns - 1 + 1) // 2 # ceil((ns - 1) / 2)
+
+    # Make sure reference blocks and search regions are inside the image.
+    ref_row_min = a
+    ref_row_max = y.shape[0] - b - (n1 - 1)
+    ref_row = np.random.randint(ref_row_min, ref_row_max, size=size)
+
+    ref_col_min = a
+    ref_col_max = y.shape[1] - b - (n1 - 1)
+    ref_col = np.random.randint(ref_col_min, ref_col_max, size=size)
+
+    return ref_row, ref_col
+
+
+def select_grid_ref(y, n1, ns, nstep, size):
+    """
+    Compute the valid range of the reference coordinates.
+    :param y: Image to consider as input.
+
+    :param n1: 
+    :param ns: 
+    :param nstep: 
+    :param size: Number of coordinates to generate.
+    :return: ref_row_lim, ref_col_lim
+    """
+
+    a = (ns - 1) // 2  # -floor((ns - 1) / 2)
+    b = (ns - 1 + 1) // 2  # ceil((ns - 1) / 2)
+
+    # Make sure reference blocks and search regions are inside the image.
+    ref_row_min = a
+    ref_row_max = y.shape[0] - b - (n1 - 1)
+
+    ref_col_min = a
+    ref_col_max = y.shape[1] - b - (n1 - 1)
+
+    ref = np.mgrid[ref_row_min:ref_row_max:nstep, ref_col_min:ref_col_max:nstep]
+    ref = ref.reshape(2, -1)
+
+    return ref[0], ref[1]
