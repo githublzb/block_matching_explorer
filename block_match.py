@@ -7,7 +7,7 @@ import skimage.util
 import matplotlib.pyplot as plt
 
 
-def block_match_self(y, ref_coordinates, n1=8, n2=32):
+def block_match_self(y, ref_coordinates, n1, n2):
     """
     Block match for self-similarity.
     
@@ -59,8 +59,7 @@ def block_match_self(y, ref_coordinates, n1=8, n2=32):
     return match_table
 
 
-def block_match_self_local(y, ref_coordinates, n1=8, n2=8, ns=8,
-                         max_memory=2**30):
+def block_match_self_local(y, ref_coordinates, n1, n2, ns, max_memory=2**30):
     """
     Block match for self-similarity, local search.
     
@@ -185,7 +184,7 @@ def sanitize_coordinates(c, s):
     return row, col
 
 
-def read_group(y, match_table, n1=8):
+def read_group(y, match_table, n1):
     """
     Read a group of patches from image based on match table.
     
@@ -233,7 +232,7 @@ def compute_patch_shape(y, n1):
     return patch_shape
 
 
-def visualise_match_table(match_table, y, n1=8, ref_coordinates=None,
+def visualise_match_table(match_table, y, n1, ref_coordinates=None,
                           distance=None, distance_full=None):
     """
     Show the match results.
@@ -302,7 +301,7 @@ def visualise_match_table(match_table, y, n1=8, ref_coordinates=None,
 
     plt.show()
 
-def select_random_ref(y, n1, ns, size):
+def select_random_ref(y, n1, ns, size=1):
     """
     Compute the valid range of the reference coordinates.
     :param y: Image to consider as input.
