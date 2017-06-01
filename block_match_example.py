@@ -15,3 +15,9 @@ rc = bm.select_random_ref(y, n1, ns, 32)
 mt, d, df = bm.block_match_self_local(y, rc, n1, n2, ns)
 
 bm.visualise_match_table(mt, y, n1, rc, d, df)
+
+ref, cdt, lab = bm.read_labelled_group(y, mt, rc, n1, ns)
+
+import matplotlib.pyplot as plt
+plt.imshow(lab[0].reshape(ns, ns))
+plt.show()

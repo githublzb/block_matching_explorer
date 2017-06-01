@@ -95,6 +95,69 @@ def block_match_self_local(y, ref_coordinates, n1=8, n2=8, ns=8,
     y_patch = ski.util.view_as_windows(y, patch_shape)
 
     # Reference coordinate arrays are flattened.
+    ref_coordinates = (np.array(ref_coordinates[0], ndmin=1).reshape(-1, 1),
+                       np.array(ref_coordinates[1], ndmin=1).reshape(-1, 1), )
+
+    candidate_coordinates = compute_candidate_coordinates(ref_coordinates, ns)
+
+    ref_coordinates = sanitize_coordinates(ref_coordinates, y_patch.shape)
+    candidate_coordinates = sanitize_coordinates(candidate_coordinates,
+                                                 y_patch.shape)
+
+    # View of reference blocks and corresponding search space.
+    ref = y_patch[ref_coordinates]
+    search_space = y_patch[candidate_coordinates]
+
+    # Compute non rooted Euclidean distance.
+    difference = search_space - ref
+    distance = np.sum(difference ** 2, axis=(2, 3))
+
+    # Find n2 best distances.
+    match_idx = np.argpartition(distance, n2)[..., :n2]
+
+    # Generate results.
+    tmp = (np.arange(ref_coordinates[0].size)[:, None], match_idx)
+    match_row = candidate_coordinates[0][tmp]
+    match_col = candidate_coordinates[1][tmp]
+    match_distance = distance[tmp]
+
+    full_distance = distance.reshape((-1, ns, ns))
+
+    # Match table is a (row, col) tuple.
+    match_table = (match_row, match_col)
+
+    return match_table, match_distance, full_distance
+
+
+def read_labelled_group(y, match_table, ref_coordinates, n1, ns):
+
+    cdt_coordinates = compute_candidate_coordinates(ref_coordinates, ns)
+
+    # View image as patches.
+    patch_shape = compute_patch_shape(y, n1)
+    y_patch = ski.util.view_as_windows(y, patch_shape)
+    y_patch = y_patch.reshape(y_patch.shape[:2] + (-1, ))
+
+    ref_coordinates = sanitize_coordinates(ref_coordinates, y_patch.shape)
+    cdt_coordinates = sanitize_coordinates(cdt_coordinates, y_patch.shape)
+
+    reference = y_patch[ref_coordinates]
+    candidate = y_patch[cdt_coordinates]
+
+    # Label is true when block is similar.
+    cdt_row, cdt_col = cdt_coordinates
+    mch_row, mch_col = match_table
+    label_row = cdt_row[:, :, None] == mch_row[:, None,:]
+    label_col = cdt_col[:, :, None] == mch_col[:, None, :]
+    label = np.logical_and(label_row, label_col)
+    label = np.any(label, axis=-1)
+
+    return reference, candidate, label
+
+
+def compute_candidate_coordinates(ref_coordinates, ns):
+
+    # Reference coordinate arrays are flattened.
     ref_row = np.array(ref_coordinates[0], ndmin=1).reshape(-1, 1)
     ref_col = np.array(ref_coordinates[1], ndmin=1).reshape(-1, 1)
 
@@ -108,34 +171,18 @@ def block_match_self_local(y, ref_coordinates, n1=8, n2=8, ns=8,
     candidate_coordinates = candidate_coordinates.reshape(2, 1, -1)
     candidate_row = ref_row + candidate_coordinates[0]
     candidate_col = ref_col + candidate_coordinates[1]
+    candidate_coordinates = (candidate_row, candidate_col, )
 
-    # But make sure we stay inside the image.
-    candidate_row = np.fmax(np.fmin(candidate_row, y_patch.shape[0]), 0)
-    candidate_col = np.fmax(np.fmin(candidate_col, y_patch.shape[1]), 0)
+    return candidate_coordinates
 
-    # View of reference blocks and corresponding search space.
-    ref = y_patch[(ref_row, ref_col)]
-    search_space = y_patch[(candidate_row, candidate_col)]
 
-    # Compute non rooted Euclidean distance.
-    difference = search_space - ref
-    distance = np.sum(difference ** 2, axis=(2, 3))
+def sanitize_coordinates(c, s):
+    """ Make sure coordinates specify blocks that are fully inside the image."""
 
-    # Find n2 best distances.
-    match_idx = np.argpartition(distance, n2)[..., :n2]
+    row = np.fmax(np.fmin(c[0], s[0]), 0)
+    col = np.fmax(np.fmin(c[1], s[1]), 0)
 
-    # Generate results.
-    tmp = (np.arange(ref_row.size)[:, None], match_idx)
-    match_row = candidate_row[tmp]
-    match_col = candidate_col[tmp]
-    match_distance = distance[tmp]
-
-    full_distance = distance.reshape((-1, ns, ns))
-
-    # Match table is a (row, col) tupple.
-    match_table = (match_row, match_col)
-
-    return match_table, match_distance, full_distance
+    return row, col
 
 
 def read_group(y, match_table, n1=8):
