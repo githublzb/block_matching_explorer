@@ -178,9 +178,10 @@ def compute_candidate_coordinates(reference_x, patch_shape, ns):
 
     # Odd ns gives even split between negative and positive offsets. Even ns
     # will give one more candidate block on the positive offsets.
-    a = -(ns - 1) // 2  # -floor((ns - 1) / 2)
+    a = -((ns - 1) // 2)  # -floor((ns - 1) / 2)
     b = (ns - 1 + 1) // 2  # ceil((ns - 1) / 2)
-    candidate_x = np.mgrid[a:b, a:b].reshape(2, 1, -1)
+    # Upper bound is exclusive, add 1.
+    candidate_x = np.mgrid[a:b+1, a:b+1].reshape(2, 1, -1)
 
     # Compute absolute coordinates.
     candidate_row = reference_x[0] + candidate_x[0]
