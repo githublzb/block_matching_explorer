@@ -104,8 +104,31 @@ def block_match_self_local(y, reference_x, n1, n2, ns, max_memory=2**30):
     candidate = y_patch[candidate_x]
 
     # Compute non rooted Euclidean distance.
-    difference = candidate - reference
-    distance = np.sum(difference ** 2, axis=(2, 3))
+    #
+    # Computing the distance matrix corresponding to a single reference block
+    # requires (ns**2 * n1**2 * 2**3) bytes of space, which is the size of
+    # the difference matrix considering numbers stored as doubles. In words,
+    # there are ns**2 candidate blocks, each of size n1**2, each element
+    # taking 2**3 bytes. The size of the distance matrix pales in comparison,
+    # a mere ns**2 * 2**3. As a typical example, n1 = 8, ns = 32, the size of
+    # the difference matrix is 2**(5*2 + 3*2 + 3) = 2**19 bytes or 512KB. The
+    # size of the distance matrix is 2**(5*2 + 3) = 2**13 bytes or 8KB. When
+    # limiting the memory usage I am assuming that all the consumed memory is
+    # due to the difference matrix.
+
+    distance = np.empty((reference_x[0].size, ns**2, ))
+    # Assumes storage as float64 (double)
+    bytes_per_reference = ns**2 * n1**2 * 2**3
+    reference_per_cycle = max_memory // bytes_per_reference
+    for r in range(0, reference_x[0].size, reference_per_cycle):
+        low = r
+        high = min(r + reference_per_cycle, reference_x[0].size)
+        reference_slice = reference[low:high, :]
+        candidate_slice = candidate[low:high, :]
+
+        # Compute non rooted Euclidean distance.
+        difference = candidate_slice - reference_slice
+        distance[low:high, :] = np.sum(difference ** 2, axis=(2, 3))
 
     # Find n2 best distances.
     match_idx = np.argpartition(distance, n2)[..., :n2]
