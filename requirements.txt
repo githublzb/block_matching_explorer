@@ -1,5 +1,0 @@
-matplotlib
-numpy
-scikit-image>=0.13
-jupyter
-line_profiler
