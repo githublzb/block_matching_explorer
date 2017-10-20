@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 n1 = 8   # Block edge
 n2 = 32  # Number of similar blocks to look for
-ns = 32  # Search neighbourhood edge
+ns = 31  # Search neighbourhood edge
 
 y = skimage.io.imread('cameraman.tif')
 
@@ -14,6 +14,9 @@ y = skimage.io.imread('cameraman.tif')
 # Pick all blocks on a grid.
 nstep = 7
 ref = bm.select_grid_reference(y, n1, ns, nstep)
+
+# import numpy as np
+# ref = (np.array((64,)), np.array((78,)))
 
 # Do the actual block matching and build groups.
 # mt, d, df = block_match.block_match_self_global(y, rc, n1, n2)
