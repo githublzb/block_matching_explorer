@@ -1,0 +1,207 @@
+* Block matching with Python, NumPy and SciPy
+
+** The task
+
+Block matching is the task of finding blocks (image patches) which are
+similar to a reference block.
+
+** The details
+
+Block matching is a core task in self-similarity based image
+processing techniques. As the name implies, the search for similar
+patches is performed in the same image from which the reference block
+is sourced. The search might be global or local. The difference
+between these two types of searches lye with the search space
+composition. In global search, the search space is composed of all the
+possible blocks in the image. On the other hand, in local search the
+search space is only composed of the blocks within a given
+neighbourhood of the reference block.
+
+This analysis will focus on global block matching for self-similarity.
+
+So, there is only one input, the image under analysis. The search
+space is composed of all blocks in the image, even overlapping
+blocks. Every block in the search space is also a reference block. In
+the end, we aim to find a set of best matching blocks for all blocks
+in the input image.
+
+** The size of things and approximations
+
+Let's consider a few definitions first. A block is a rectangular patch
+of the image, with area N_0 * N_1 = N. An image is composed of only
+one colour channel and has area M_0 * M_1 = M. The search space
+created by such a combination of settings contains (M_0 - L_0 + 1) *
+(M_1 - L_1 + 1) blocks. However, if the image sides are much bigger
+than the block sides, which is generally the case, we can consider
+that there are a total of M_0 * M_1 = M distinct blocks inside an
+image of area M. We are going to do just that and consider a search
+space with M blocks. For each reference block, we are interested in
+finding $S$ best matches. Another consideration is the size of numbers in
+memory. We are going to consider 8 bytes per quantity, as is common in
+Python due to the use of 64 bit floats by default. Powers of two are
+going to be given as examples for all quantities to make computations
+easier. Multipliers Kilo, Mega and Giga are base 2, or, $2^10$, $2^20$
+and $2^30$, respectively.
+
+Putting some reasonable numbers on things. $N = 8 * 8 = 64 = 2^6$. $M
+= 4 Megapixel = 2^22$. $G = 32 = 2^5$.
+
+Using these very common numbers, the search space would contain 4 Mega
+blocks. In bytes, this would be $2^(6+22+3) = 2^31 = 2GB$ of data. So,
+an image of $2^(22+3) = 2^25 = 32MB$ generates an N times bigger
+search space. We are already seeing that solving this problem
+will require dealing with very high volumes of data. The final
+results, for all $M$ reference blocks would occupy $2^(22 + 6 + 5 + 3)
+= 2^(36) = 64GB$ of data. Once again, munching this problem all at
+once seems to be impossible, only because we can't even keep the
+results in memory.
+
+An important observation to make is that both the search space and the
+final set of blocks are extracted from the input image. What this
+means is that there are only $M$ independent pixels. So, we shouldn't
+need to actually store the blocks but only a way to find those blocks
+in the image, or the block indices. Python provides facilities to
+perform exactly this in an efficient way, so this problem can actually
+be solved with much less memory than the previous paragraph
+suggested. That being said, how it is done is described further on.
+
+** The algorithm
+
+The block matching algorithm is relatively straightforward to
+understand: compute distance, sort distances, select blocks with best
+distances.
+
+The numbers presented in this section are per reference block. In
+order to get an idea of the overall problem dimension multiply by $M$
+as appropriate, or, as suggested, by $2^22$ for a reasonable $4$
+MPixel image.
+
+*** The input
+
+A single channel image. Considering the example numbers, $2^{22+3} =
+32 MB$ of data.
+
+*** Computing similarity: the distance function
+    
+We consider the amount of similarity between two blocks to be the
+euclidean distance between those blocks. The euclidean distance is the
+square root of the sum of squared differences. In math, the distance
+$d$ between block $b$ and reference block $r$ is $d =
+\sqrt{\sum_{i=0}^{N_0q-1}\sum_{j=0}^{N_1-1}{(b_{ij}-r_{ij})^2}}$.
+
+Note from the function that the sum is performed over all the pixels
+of the search space. What this means in terms of memory consumption,
+is that implementing this operation would require an amount of
+intermediate memory equal to the size of the search space.
+
+*** Selecting the best matches: sorting
+
+Having computed the distances between the reference block and all
+candidate blocks, we must now find the $G$ best ones, that is, we must
+find the $G$ blocks for which the distance came out to be lowest. This
+is done by sorting all distances, $M$ of them. No small feat.
+
+*** The output
+
+Finally, the result of block matching is $G$ best blocks per reference
+block. In terms of data size, using our example numbers, for each
+reference block $2^(6+5+3) = 2^14 = 16 KB$ are generated.
+
+** Efficient implementation in Python
+
+Creating an efficient implementation of this method requires two
+things: efficient vector operations and efficient data storage and
+access, with flexible indexing. For example, computing the distance
+between all candidate blocks and a reference block can be done with a
+element wise subtraction, followed by a element wise squaring and
+finally a sum over a single axis. Looping over all the candidate
+blocks would be highly inefficient and all these operations are
+independent. Vector instructions can be used to execute them in
+parallel. As previously mentioned, the set of candidate blocks and the
+results are blocks extracted from the input image. There is no need to
+store the actual blocks, only the addresses of those blocks in the
+image. Python provides efficient methods to create structures that
+despite looking like a big set of blocks are simply a "view" to a much
+smaller amount of data. In this case, the set of candidate blocks
+might look like a $N * M$ vector, making computations easy to specify,
+but the actual amount of memory it occupies is in the order of $M +
+N$. The same applies to the results vector.
+
+This implementation attempts to operate on as many reference blocks as
+possible at once. However, due to the generation of a high amount of
+intermediate memory, not all reference blocks can be processed at once
+in a realistic scenario. Because of this, an analysis is performed as
+to how many reference blocks can be simultaneously processed with
+reasonable memory consumption. The use of for loops to separate the
+processing of reference block batches, should not pose problem due to
+the high computational requirements of processing even a single
+reference block.
+
+*** Candidate block set
+
+A candidate block set can be created efficiently using
+skimage.util.view_as_windows().
+
+*** Distance computation
+
+Distance computation is a common task in image processing, therefore
+scipy provides a couple of functions to deal with it efficiently. In
+the module scipy.spatial.distance there are two functions: cdist() and
+pdist() that can be used to solve this problem. Because every block in
+the search space is also a reference block at some point, one would
+want to compute all pairwise distances between all blocks in the
+search space. This falls clearly under the pdist() function, or the
+pairwise distance computation function. However, the memory required
+to hold such a distance matrix is simply too big, $(M-1)^2 / 2$ (-1
+because distance between a block and itself is 0, and the distance
+matrix is asymmetric). In our pet scenario, ignoring the -1 for
+simplicity, this equals $2^(22*2 - 1 + 3) = 2^46 = 64TB$ in our pet
+scenario. Clearly too much. For this reason there is the function
+cdist(), which computes the differences between all blocks in one
+array agains all blocks in the other array. With this function, one
+can partition the problem by processing the reference blocks in
+batches. Because slicing is efficient and copy free, we can use the
+full candidate block array as one argument and a slice of this array
+as the second argument. This allows efficient partitioning of the
+problem.
+
+How many reference blocks we can process at once? Let's considering
+our pet problem and 1GB of memory to store the distances. Note that
+the distance matrix is no longer symmetric, so we it's size is $M*B$
+where B is the batch size, or the number of reference blocks being
+processed at once. So, if $2^22 * B * 2^3 = 2^30$, if we consider $B$
+to be a power of $2$ and log to be base 2 logarithm, we have that
+$log(B) = log(30 - 22 - 3) = log(5)$, or $B = 32$. We can therefore
+process 32 reference blocks with 1GB of memory. Just for reference, on
+my beefed up X250 computing the distances for a single batch takes 5
+seconds.
+
+*** Old stuff
+
+Block matching is an operation that requires a lot of intermediate
+memory. While for each reference block only a small number of indexes
+are computed (let's say, N2), a lot goes on under the hood in order to
+compute those values. First, in order to compare a block of size N
+with M other blocks, N * M pixels are required as intermediate memory,
+to hold the pixel-wise differences. It is true that all this data is
+immediately reduced to M numbers with the sum of squared
+differences. A naïve implementation will require too much memory to be
+of any use in image processing problems. With an image of 2K by 2K
+pixels, 4MPixel, performing a global distance computation of a single
+block of size 8 * 8 = 64 would require storage of 256M difference
+values. In python's common float64 this would mean 2GB of data. Let's
+assume we can get past this phase somehow and are now only in the
+possession of the distance values. Even then, there are roughly M
+distances per reference block, which have to be sorted and finnaly
+resulting in the N2 indices we seek. Considering the same image as
+before, 4MPixels, or 32MB, if we set aside 1GB of memory to hold the
+distances we are able to operate on 32 blocks at a time. It isn't
+terribly much, considering that we have 4M blocks to deal with. In
+order to perform all these operations with vector math, the input
+image must be seen as a sequence of blocks. Once again, a naïve look
+at this problem would prove unfeasible. With the same 4MP image and 64
+pixel blocks, all the blocks would take roughly 64 * 4MP = 256 MP or
+2GB in python's float64. So, all in all, to find the 32 best matches
+of a single 8 by 8 block in a 4MP image via exhaustive search, one
+would need 2GB of intermediate memory.
+
